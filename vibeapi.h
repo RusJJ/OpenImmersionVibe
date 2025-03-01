@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include <jni.h>
+#include <semaphore.h>
 
 // Types
 typedef uint8_t VibeUInt8;
@@ -25,6 +26,7 @@ typedef uintptr_t VibePointer;
 
 #define STATUS_OK 0
 #define STATUS_ALREADY_INITED -1
+#define STATUS_WRONG_ARGUMENT -3
 #define STATUS_FAILED_GENERIC -4
 
 
