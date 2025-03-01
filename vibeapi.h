@@ -12,6 +12,7 @@ typedef int16_t VibeInt16;
 typedef int32_t VibeInt32;
 typedef int64_t VibeInt64;
 typedef VibeInt32 VibeStatus;
+typedef uintptr_t VibePointer;
 
 // Macros
 #define BUILD_DATE_STR __DATE__
