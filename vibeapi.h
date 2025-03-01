@@ -23,6 +23,8 @@ typedef VibeInt32 VibeStatus;
 #define VERSION_INT   ( VERSION_REVIS | (VERSION_BUILD << 8) | (VERSION_MINOR << 16) | (VERSION_MAJOR << 24) )
 
 #define STATUS_OK 0
+#define STATUS_ALREADY_INITED -1
+#define STATUS_FAILED_TO_INIT -4
 
 
 
