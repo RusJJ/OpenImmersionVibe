@@ -25,7 +25,7 @@ typedef uintptr_t VibePointer;
 
 #define STATUS_OK 0
 #define STATUS_ALREADY_INITED -1
-#define STATUS_FAILED_TO_INIT -4
+#define STATUS_FAILED_GENERIC -4
 
 
 
