@@ -16,4 +16,11 @@ VibeStatus EmuInitialize(VibeInt32 flag)
     return STATUS_OK;
 }
 
+VibeInt32 EmuGetDeviceCount()
+{
+    // The whole logic results in a 1,
+    // negative nums if there is an error.
+    return 1;
+}
+
 };
