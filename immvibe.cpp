@@ -14,6 +14,9 @@ jobject g_VibratorObject;
 jmethodID g_VibrateMethod;
 
 sem_t mainSemaphore, renderSemaphore;
+pthread_t g_MainLoopThread;
+pthread_mutex_t g_VibeDriverUpdateThread, g_VibeDriverVibrateMutex;
+pthread_cond_t g_VibeDriverUpdateCond;
 
 VibeInt32 DetectTSPVersion()
 {
@@ -25,13 +28,13 @@ VibeInt32 DetectTSPVersion()
 void* ImmVibeMainLoopThread(void* data)
 {
     JNIEnv* env;
-    g_JavaVM->AttachCurrentThread((void**)&env, NULL);
+    g_JavaVM->AttachCurrentThread(&env, NULL);
     
     jclass vibratorCls = env->FindClass("android/os/Vibrator");
     jclass contextCls = env->FindClass("android/context/Context");
     jmethodID sysServiceMethod = env->GetMethodID(contextCls, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
     jfieldID vibratorSrvField = env->GetStaticFieldID(contextCls, "VIBRATOR_SERVICE", "Ljava/lang/String;");
-    jstring vibratorFieldStr = env->GetStaticObjectField(contextCls, vibratorSrvField);
+    jstring vibratorFieldStr = (jstring)env->GetStaticObjectField(contextCls, vibratorSrvField);
     jobject localVibrateObject = env->CallObjectMethod(g_ContextObj, sysServiceMethod, vibratorSrvField);
 
     g_VibratorObject = env->NewGlobalRef(localVibrateObject);
@@ -42,20 +45,28 @@ void* ImmVibeMainLoopThread(void* data)
     
     while(true)
     {
-        // TODO:
+        pthread_mutex_lock(&g_VibeDriverUpdateThread);
+        pthread_cond_wait(&g_VibeDriverUpdateCond, &g_VibeDriverUpdateThread);
+        pthread_mutex_unlock(&g_VibeDriverUpdateThread);
+
+        if(VibeOSIsTimerRunning())
+        {
+            VibeDriverUpdate();
+            usleep(25000);
+        }
     }
     return (void*)STATUS_OK;
 }
 
-VibeStatus ImmVibeInitialize2(int unused, JavaVM* vm, jobject activity)
+VibeStatus ImmVibeInitialize2(int unused, JavaVM* vm, jobject context)
 {
     g_bEmulator = false;
     g_JavaVM = vm;
 
     JNIEnv* env;
-    vm->AttachCurrentThread((void**)&env, NULL);
-    g_ContextObj = env->NewGlobalRef(activity);
-    if(!activity) return STATUS_FAILED_GENERIC;
+    vm->AttachCurrentThread(&env, NULL);
+    g_ContextObj = env->NewGlobalRef(context);
+    if(!context) return STATUS_FAILED_GENERIC;
 
     sem_init(&mainSemaphore, 0, 1);
     sem_init(&renderSemaphore, 0, 1);
@@ -75,12 +86,22 @@ VibeStatus ImmVibeInitialize2(int unused, JavaVM* vm, jobject activity)
 
     if(g_bEmulator)
     {
-        // TODO:
+        VIBELOGD("CUHL::ImmVibeInitialize: found emulator version (%d)", g_nTSPVersion);
+        if(!g_MainLoopThread)
+        {
+            pthread_create(&g_MainLoopThread, NULL, ImmVibeMainLoopThread, &g_MainLoopThread);
+            sem_post(&mainSemaphore);
+            sem_wait(&renderSemaphore);
+        }
     }
     else
     {
-        // Not required.
+        VIBELOGD("CUHL::ImmVibeInitialize: found TSP version (%d)", g_nTSPVersion);
     }
+
+    // Watchdog? Do we need it..?
+    //HandleAnalytics(); // no thanks
+
     return finalInitStatus;
 }
 
