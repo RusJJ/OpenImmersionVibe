@@ -23,14 +23,15 @@ VibeInt32 EmuGetDeviceCount()
     return 1;
 }
 
-void Emulator_Vibrate(VibeInt32 doVibro)
+void Emulator_Vibrate(VibeInt32 durationMs)
 {
-    if(doVibro && g_VibratorObject && g_VibrateMethod)
+    if(durationMs && g_VibratorObject && g_VibrateMethod)
     {
         JNIEnv* env;
         pthread_mutex_lock(&g_VibeDriverVibrateMutex);
         g_JavaVM->AttachCurrentThread(&env, NULL);
-        env->CallVoidMethod(g_VibratorObject, g_VibrateMethod);
+        jlong durationLongMs = 25 * durationMs / 127;
+        env->CallVoidMethod(g_VibratorObject, g_VibrateMethod, durationLongMs);
         pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
     }
 }

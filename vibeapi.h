@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Types
 typedef uint8_t VibeUInt8;
@@ -89,7 +90,7 @@ VibeStatus ImmVibeGetIVTEffectIndexFromName(VibeUInt8* ivtData, const char* effe
 // ImmVibeEmu
 VibeStatus EmuInitialize(VibeInt32 flag);
 VibeInt32 EmuGetDeviceCount();
-void Emulator_Vibrate(VibeInt32 doVibro);
+void Emulator_Vibrate(VibeInt32 durationMs);
 // ImmOS
 VibeInt32 VibeOSCreateMutex(const char* name);
 void VibeOSDestroyMutex(VibeInt32 mutexNum);
@@ -106,6 +107,7 @@ VibeStatus VibeOSStopTimer();
 VibeInt32 VibeOSGetTimeMs(__time_t seconds, __suseconds_t subseconds);
 // ImmDriver
 void VibeDriverLinuxWriteOutputBuffer();
+bool VibeDriverUpdate();
 
 #ifdef __cplusplus
 }
