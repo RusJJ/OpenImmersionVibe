@@ -3,12 +3,30 @@
 extern "C"
 {
 
+VibeInt32 g_hDataMutex;
 VibeStatus EmuInitialize(VibeInt32 flag)
 {
     if((flag & 0x7FFF0000) > 0x5000000 || flag < 0)
     {
         // huh?
-        return -3;
+        return STATUS_WRONG_ARGUMENT;
+    }
+
+    if(g_nVibeAPIReferenceCount)
+    {
+        ++g_nVibeAPIReferenceCount;
+        return STATUS_OK;
+    }
+
+    g_hDataMutex = VibeOSCreateMutex("h");
+    if(g_hDataMutex == -1)
+    {
+        return STATUS_FAILED_GENERIC;
+    }
+
+    if(VibeMMInitialize() < STATUS_OK)
+    {
+        // TODO: Terminate
     }
 
     // TODO:
@@ -34,6 +52,19 @@ void Emulator_Vibrate(VibeInt32 durationMs)
         env->CallVoidMethod(g_VibratorObject, g_VibrateMethod, durationLongMs);
         pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
     }
+}
+
+VibeStatus EmuOpenDevice(VibeInt32 deviceIndex, VibeInt32* deviceHandle)
+{
+    *deviceHandle = -1;
+    if(!g_nVibeAPIReferenceCount)
+    {
+        return STATUS_FAILED_TO_INIT;
+    }
+
+    // TODO:
+
+    return STATUS_OK;
 }
 
 };

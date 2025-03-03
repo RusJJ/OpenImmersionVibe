@@ -34,6 +34,7 @@ typedef uintptr_t VibePointer;
 
 #define STATUS_OK              0
 #define STATUS_ALREADY_INITED -1
+#define STATUS_FAILED_TO_INIT -2
 #define STATUS_WRONG_ARGUMENT -3
 #define STATUS_FAILED_GENERIC -4
 
@@ -64,7 +65,7 @@ extern jobject g_Activity;
 extern jobject g_ContextObj;
 extern bool g_bEmulator;
 extern JavaVM* g_JavaVM;
-extern VibeInt32 g_nTSPVersion;
+extern VibeInt32 g_nTSPVersion, g_nVibeAPIReferenceCount;
 extern void* g_pBestEffectSet;
 extern jobject g_VibratorObject;
 extern jmethodID g_VibrateMethod;
@@ -91,6 +92,7 @@ VibeStatus ImmVibeGetIVTEffectIndexFromName(VibeUInt8* ivtData, const char* effe
 VibeStatus EmuInitialize(VibeInt32 flag);
 VibeInt32 EmuGetDeviceCount();
 void Emulator_Vibrate(VibeInt32 durationMs);
+VibeStatus EmuOpenDevice(VibeInt32 deviceIndex, VibeInt32* deviceHandle);
 // ImmOS
 VibeInt32 VibeOSCreateMutex(const char* name);
 void VibeOSDestroyMutex(VibeInt32 mutexNum);
@@ -108,6 +110,8 @@ VibeInt32 VibeOSGetTimeMs(__time_t seconds, __suseconds_t subseconds);
 // ImmDriver
 void VibeDriverLinuxWriteOutputBuffer();
 bool VibeDriverUpdate();
+// ImmVibeMM
+VibeStatus VibeMMInitialize();
 
 #ifdef __cplusplus
 }

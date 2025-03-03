@@ -7,7 +7,7 @@ jobject g_Activity = NULL;
 jobject g_ContextObj = NULL;
 bool g_bEmulator = false;
 JavaVM* g_JavaVM = NULL;
-VibeInt32 g_nTSPVersion = 0;
+VibeInt32 g_nTSPVersion = 0, g_nVibeAPIReferenceCount = 0;
 void* g_pBestEffectSet = NULL; // unused
 
 jobject g_VibratorObject;
