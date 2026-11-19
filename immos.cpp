@@ -1,9 +1,16 @@
 #include "vibeapi.h"
 
-ImmVibeMutex g_mutexes[16];
+static ImmVibeMutex g_mutexes[16];
+static pthread_mutex_t g_MutexLock = PTHREAD_MUTEX_INITIALIZER;
+static bool g_bTimerSet = false;
+
+extern "C"
+{
 
 VibeInt32 VibeOSCreateMutex(const char* name)
 {
+    if(!name) return STATUS_WRONG_ARGUMENT;
+
     int i;
     for(i = 0; i < 16; ++i)
     {
@@ -22,6 +29,7 @@ VibeInt32 VibeOSCreateMutex(const char* name)
     if(i >= 16) return STATUS_ALREADY_INITED;
 
     g_mutexes[i].name = strdup(name);
+    g_mutexes[i].locked = false;
     pthread_mutex_init(&g_mutexes[i].mutex, NULL);
     pthread_cond_init(&g_mutexes[i].cond, NULL);
     return i;
@@ -29,36 +37,44 @@ VibeInt32 VibeOSCreateMutex(const char* name)
 
 void VibeOSDestroyMutex(VibeInt32 mutexNum)
 {
+    if(mutexNum < 0 || mutexNum >= 16 || !g_mutexes[mutexNum].name) return;
+
     free(g_mutexes[mutexNum].name);
     g_mutexes[mutexNum].name = NULL;
+    g_mutexes[mutexNum].locked = false;
     pthread_mutex_destroy(&g_mutexes[mutexNum].mutex);
     pthread_cond_destroy(&g_mutexes[mutexNum].cond);
 }
 
-VibeStatus VibeOSAcquireMutexWaitNoWait(VibeInt32 mutexNum, VibeInt32 time, VibeInt32 wait)
+VibeStatus VibeOSAcquireMutexWaitNoWait(VibeInt32 mutexNum, VibeInt32 timeMs, VibeInt32 wait)
 {
-    if(mutexNum >= 16 || !g_mutexes[mutexNum].name)
+    if(mutexNum < 0 || mutexNum >= 16 || !g_mutexes[mutexNum].name)
     {
         return STATUS_WRONG_ARGUMENT;
     }
 
     struct timespec tp;
-    clock_gettime(0, &tp);
-    tp.tv_sec += time / 1000;
-    tp.tv_nsec += time % 1000 * 1000000;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    tp.tv_sec += timeMs / 1000;
+    tp.tv_nsec += (long)(timeMs % 1000) * 1000000L;
+    if(tp.tv_nsec >= 1000000000L)
+    {
+        tp.tv_sec += 1;
+        tp.tv_nsec -= 1000000000L;
+    }
 
     if(pthread_mutex_lock(&g_mutexes[mutexNum].mutex) != 0)
     {
         return STATUS_FAILED_GENERIC;
     }
 
-    if(!wait && g_mutexes[mutexNum].released)
+    if(!wait && g_mutexes[mutexNum].locked)
     {
         pthread_mutex_unlock(&g_mutexes[mutexNum].mutex);
         return STATUS_FAILED_GENERIC;
     }
 
-    while(g_mutexes[mutexNum].released)
+    while(g_mutexes[mutexNum].locked)
     {
         if(pthread_cond_timedwait(&g_mutexes[mutexNum].cond, &g_mutexes[mutexNum].mutex, &tp) != 0)
         {
@@ -66,14 +82,14 @@ VibeStatus VibeOSAcquireMutexWaitNoWait(VibeInt32 mutexNum, VibeInt32 time, Vibe
             return STATUS_FAILED_GENERIC;
         }
     }
-    g_mutexes[mutexNum].released = true;
+    g_mutexes[mutexNum].locked = true;
     pthread_mutex_unlock(&g_mutexes[mutexNum].mutex);
     return STATUS_OK;
 }
 
-VibeStatus VibeOSAcquireMutexWait(VibeInt32 mutexNum, VibeInt32 time)
+VibeStatus VibeOSAcquireMutexWait(VibeInt32 mutexNum, VibeInt32 timeMs)
 {
-    return VibeOSAcquireMutexWaitNoWait(mutexNum, time, 1);
+    return VibeOSAcquireMutexWaitNoWait(mutexNum, timeMs, 1);
 }
 
 VibeStatus VibeOSAcquireMutex(VibeInt32 mutexNum)
@@ -84,13 +100,13 @@ VibeStatus VibeOSAcquireMutex(VibeInt32 mutexNum)
 VibeInt32 VibeOSCreateMutexAcquired(const char* name)
 {
     VibeInt32 mutexNum = VibeOSCreateMutex(name);
-    if(mutexNum != -1) VibeOSAcquireMutex(mutexNum);
+    if(mutexNum >= 0) VibeOSAcquireMutex(mutexNum);
     return mutexNum;
 }
 
 VibeStatus VibeOSAcquireMutexNoWait(VibeInt32 mutexNum)
 {
-    if(mutexNum >= 16 || !g_mutexes[mutexNum].name)
+    if(mutexNum < 0 || mutexNum >= 16 || !g_mutexes[mutexNum].name)
     {
         return STATUS_WRONG_ARGUMENT;
     }
@@ -99,42 +115,21 @@ VibeStatus VibeOSAcquireMutexNoWait(VibeInt32 mutexNum)
 
 void VibeOSReleaseMutex(VibeInt32 mutexNum)
 {
+    if(mutexNum < 0 || mutexNum >= 16 || !g_mutexes[mutexNum].name) return;
+
     if(!pthread_mutex_lock(&g_mutexes[mutexNum].mutex))
     {
-        g_mutexes[mutexNum].released = true;
+        g_mutexes[mutexNum].locked = false;
         pthread_cond_broadcast(&g_mutexes[mutexNum].cond);
         pthread_mutex_unlock(&g_mutexes[mutexNum].mutex);
     }
 }
 
-pthread_mutex_t g_MutexLock;
-pthread_cond_t mConditionThreadContinue;
-bool g_bTimerSet;
-void (*g_timerProc)();
-void VibeOSTimerThread()
-{
-    pthread_mutex_lock(&g_MutexLock);
-    while(true)
-    {
-        bool didSetTimer = g_bTimerSet;
-        pthread_mutex_unlock(&g_MutexLock);
-        if(didSetTimer)
-        {
-            sleep(0);
-            g_timerProc();
-            pthread_mutex_lock(&g_MutexLock);
-        }
-        else
-        {
-            pthread_mutex_lock(&g_MutexLock);
-            pthread_cond_wait(&mConditionThreadContinue, &g_MutexLock);
-        }
-    }
-}
-
 VibeStatus VibeOSStartTimer()
 {
+    pthread_mutex_lock(&g_MutexLock);
     g_bTimerSet = true;
+    pthread_mutex_unlock(&g_MutexLock);
     return STATUS_OK;
 }
 
@@ -150,18 +145,15 @@ VibeStatus VibeOSStopTimer()
 {
     pthread_mutex_lock(&g_MutexLock);
     g_bTimerSet = false;
-    pthread_cond_signal(&mConditionThreadContinue);
     pthread_mutex_unlock(&g_MutexLock);
     return STATUS_OK;
 }
 
-VibeInt32 VibeOSGetTimeMs(__time_t seconds, __suseconds_t subseconds)
+VibeInt64 VibeOSGetTimeMs()
 {
-    struct timeval tv;
-    tv.tv_sec = seconds;
-    tv.tv_usec = subseconds;
-    if(gettimeofday(&tv, 0)) return 0;
-    return 1000 * tv.tv_sec + tv.tv_usec / 1000;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (VibeInt64)ts.tv_sec * 1000LL + (VibeInt64)(ts.tv_nsec / 1000000L);
 }
 
-// IPC part supposed to be below. We dont have an access to low-level hardware.
+};

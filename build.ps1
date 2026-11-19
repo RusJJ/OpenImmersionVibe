@@ -1,8 +1,8 @@
-$NDKPath = Get-Content $PSScriptRoot/NDKPath.txt
+$NDKPath = (Get-Content "$PSScriptRoot/ndkpath.txt" -Raw).Trim()
 Write-Output "NDK located at: $NDKPath"
 
 $buildScript = "$NDKPath/build/ndk-build"
-if (-not ($PSVersionTable.PSEdition -eq "Core")) {
+if ($IsWindows -or -not ($PSVersionTable.PSEdition -eq "Core")) {
     $buildScript += ".cmd"
 }
 
