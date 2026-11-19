@@ -188,6 +188,8 @@ extern VibeInt32 g_hDataMutex;
 
 extern const VibeUInt8 g_EmulatorReferenceIVT[];
 extern const size_t g_EmulatorReferenceIVTSize;
+extern VIBE_EXPORT const char g_szOEMName[];
+extern VIBE_EXPORT const char g_szBuildDate[];
 
 // Internal helpers
 const char* VibeStatusToString(VibeStatus status);

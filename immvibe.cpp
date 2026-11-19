@@ -23,6 +23,9 @@ VibeInt32 g_nMasterStrength = VIBE_MAX_MAGNITUDE;
 VibeInt32 g_nPriority = 0;
 VibeInt32 g_nDebugLevel = 0;
 
+extern VIBE_EXPORT const char g_szOEMName[] __attribute__((used)) = "OpenImmersionVibe by RusJJ";
+extern VIBE_EXPORT const char g_szBuildDate[] __attribute__((used)) = "OpenImmersionVibe Build: " BUILD_DATE_STR " (RusJJ)";
+
 const char* VibeStatusToString(VibeStatus status)
 {
     switch(status)
