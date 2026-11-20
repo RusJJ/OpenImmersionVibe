@@ -3,6 +3,7 @@
 static int g_SdkInt = 0;
 static bool g_CheckedAmplitudeControl = false;
 static bool g_HasAmplitudeControl = false;
+static jobject g_MediaVibrationAttrs = NULL;
 static pthread_mutex_t g_JniMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static JNIEnv* AcquireJNIEnv(bool* didAttach)
@@ -74,6 +75,60 @@ static jobject ResolveContextLocked(JNIEnv* env)
         if(env->ExceptionCheck()) env->ExceptionClear();
     }
     return NULL;
+}
+
+static jobject GetMediaVibrationAttributesLocked(JNIEnv* env)
+{
+    if(g_MediaVibrationAttrs) return g_MediaVibrationAttrs;
+
+    jclass vaClass = env->FindClass("android/os/VibrationAttributes");
+    if(vaClass)
+    {
+        jfieldID usageField = env->GetStaticFieldID(vaClass, "USAGE_MEDIA", "I");
+        jmethodID createForUsage = env->GetStaticMethodID(vaClass, "createForUsage", "(I)Landroid/os/VibrationAttributes;");
+        if(usageField && createForUsage)
+        {
+            jint usageMedia = env->GetStaticIntField(vaClass, usageField);
+            jobject localAttrs = env->CallStaticObjectMethod(vaClass, createForUsage, usageMedia);
+            if(localAttrs && !env->ExceptionCheck())
+            {
+                g_MediaVibrationAttrs = env->NewGlobalRef(localAttrs);
+                env->DeleteLocalRef(localAttrs);
+            }
+        }
+        env->DeleteLocalRef(vaClass);
+    }
+    if(env->ExceptionCheck()) env->ExceptionClear();
+    return g_MediaVibrationAttrs;
+}
+
+static bool VibrateWithEffectLocked(JNIEnv* env, jobject vibrator, jclass vibClass, jobject effect, int sdk)
+{
+    // Android 13+ (API 33+): tag as USAGE_MEDIA so notification mute / DND does not silence game rumble
+    if(sdk >= 33)
+    {
+        jobject attrs = GetMediaVibrationAttributesLocked(env);
+        if(attrs)
+        {
+            jmethodID vibrateWithAttrs = env->GetMethodID(vibClass, "vibrate", "(Landroid/os/VibrationEffect;Landroid/os/VibrationAttributes;)V");
+            if(vibrateWithAttrs)
+            {
+                env->CallVoidMethod(vibrator, vibrateWithAttrs, effect, attrs);
+                if(!env->ExceptionCheck()) return true;
+            }
+            if(env->ExceptionCheck()) env->ExceptionClear();
+        }
+    }
+
+    // Android 8.0+ (API 26+) or fallback
+    jmethodID vibrateEffect = env->GetMethodID(vibClass, "vibrate", "(Landroid/os/VibrationEffect;)V");
+    if(vibrateEffect)
+    {
+        env->CallVoidMethod(vibrator, vibrateEffect, effect);
+        if(!env->ExceptionCheck()) return true;
+    }
+    if(env->ExceptionCheck()) env->ExceptionClear();
+    return false;
 }
 
 static jobject FetchVibratorLocked(JNIEnv* env, jclass* outVibClass)
@@ -202,6 +257,9 @@ static jobject FetchVibratorLocked(JNIEnv* env, jclass* outVibClass)
         }
     }
 
+    // Pre-cache USAGE_MEDIA attributes on API 33+
+    if(sdk >= 33) GetMediaVibrationAttributesLocked(env);
+
     *outVibClass = vibClass;
     return g_VibratorObject;
 }
@@ -289,11 +347,13 @@ void Emulator_ClearJNI(JNIEnv* env)
         if(g_ContextObj) env->DeleteGlobalRef(g_ContextObj);
         if(g_Activity) env->DeleteGlobalRef(g_Activity);
         if(g_VibratorObject) env->DeleteGlobalRef(g_VibratorObject);
+        if(g_MediaVibrationAttrs) env->DeleteGlobalRef(g_MediaVibrationAttrs);
     }
     g_UnityPlayerClass = NULL;
     g_ContextObj = NULL;
     g_Activity = NULL;
     g_VibratorObject = NULL;
+    g_MediaVibrationAttrs = NULL;
     g_VibrateMethod = NULL;
     g_JavaVM = NULL;
     g_SdkInt = 0;
@@ -425,21 +485,19 @@ void Emulator_VibrateWithMagnitude(VibeInt64 durationMs, VibeInt32 magnitude)
     bool vibrated = false;
     int sdk = GetAndroidSdkInt(env);
 
-    // Android 8.0+ (API 26+): VibrationEffect.createOneShot
+    // Android 8.0+ (API 26+): VibrationEffect.createOneShot (+ USAGE_MEDIA on API 33+)
     if(sdk >= 26)
     {
         jclass veClass = env->FindClass("android/os/VibrationEffect");
         if(veClass)
         {
             jmethodID createOneShot = env->GetStaticMethodID(veClass, "createOneShot", "(JI)Landroid/os/VibrationEffect;");
-            jmethodID vibrateEffect = env->GetMethodID(vibClass, "vibrate", "(Landroid/os/VibrationEffect;)V");
-            if(createOneShot && vibrateEffect)
+            if(createOneShot)
             {
                 jobject effect = env->CallStaticObjectMethod(veClass, createOneShot, (jlong)durationMs, (jint)ScaleMagToAmp(magnitude));
                 if(effect && !env->ExceptionCheck())
                 {
-                    env->CallVoidMethod(vibrator, vibrateEffect, effect);
-                    if(!env->ExceptionCheck()) vibrated = true;
+                    vibrated = VibrateWithEffectLocked(env, vibrator, vibClass, effect, sdk);
                     env->DeleteLocalRef(effect);
                 }
             }
@@ -501,15 +559,14 @@ void Emulator_VibrateWaveform(const VibeInt64* timingsMs, const VibeInt32* magni
     bool vibrated = false;
     int sdk = GetAndroidSdkInt(env);
 
-    // Android 8.0+ (API 26+): VibrationEffect.createWaveform
+    // Android 8.0+ (API 26+): VibrationEffect.createWaveform (+ USAGE_MEDIA on API 33+)
     if(sdk >= 26)
     {
         jclass veClass = env->FindClass("android/os/VibrationEffect");
         if(veClass)
         {
             jmethodID createWaveform = env->GetStaticMethodID(veClass, "createWaveform", "([J[II)Landroid/os/VibrationEffect;");
-            jmethodID vibrateEffect = env->GetMethodID(vibClass, "vibrate", "(Landroid/os/VibrationEffect;)V");
-            if(createWaveform && vibrateEffect)
+            if(createWaveform)
             {
                 jlong jTimings[VIBRO_MAX_WAVEFORM_STEPS];
                 jint jAmps[VIBRO_MAX_WAVEFORM_STEPS];
@@ -528,8 +585,7 @@ void Emulator_VibrateWaveform(const VibeInt64* timingsMs, const VibeInt32* magni
                     jobject effect = env->CallStaticObjectMethod(veClass, createWaveform, timingArr, ampArr, (jint)repeatIndex);
                     if(effect && !env->ExceptionCheck())
                     {
-                        env->CallVoidMethod(vibrator, vibrateEffect, effect);
-                        if(!env->ExceptionCheck()) vibrated = true;
+                        vibrated = VibrateWithEffectLocked(env, vibrator, vibClass, effect, sdk);
                         env->DeleteLocalRef(effect);
                     }
                 }
