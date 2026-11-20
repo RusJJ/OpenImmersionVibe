@@ -185,6 +185,7 @@ extern VibeInt32 g_nMasterStrength;
 extern VibeInt32 g_nPriority;
 extern VibeInt32 g_nDebugLevel;
 extern VibeInt32 g_hDataMutex;
+extern VibeInt32 g_nActiveHwHandle;
 
 extern const VibeUInt8 g_EmulatorReferenceIVT[];
 extern const size_t g_EmulatorReferenceIVTSize;

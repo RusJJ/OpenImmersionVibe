@@ -46,6 +46,7 @@ VibeStatus EmuPlaySimpleEffect(VibeInt32 deviceHandle, VibeInt32 effectType, Vib
     if(durationMs < 0) return STATUS_WRONG_ARGUMENT;
 
     VibeInt32 effMag = EmuComputeMagnitude(magnitude);
+    bool willVibrate = (durationMs > 0 && effMag > 0);
 
     pthread_mutex_lock(&g_VibeDriverVibrateMutex);
     VibroEffectSlot* slot = VibeDriverAllocSlot();
@@ -57,10 +58,11 @@ VibeStatus EmuPlaySimpleEffect(VibeInt32 deviceHandle, VibeInt32 effectType, Vib
     slot->magnitude = magnitude;
     slot->startTimeMs = VibeOSGetTimeMs();
     slot->remainingMs = durationMs;
-    slot->state = (durationMs > 0 && effMag > 0) ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    slot->state = willVibrate ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    if(willVibrate) g_nActiveHwHandle = handle;
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(durationMs > 0 && effMag > 0)
+    if(willVibrate)
     {
         if(durationMs == VIBE_TIME_INFINITE)
         {
@@ -85,13 +87,13 @@ VibeStatus EmuModifyEffect(VibeInt32 deviceHandle, VibeInt32 effectHandle, VibeI
 
     VibeInt32 effMag = EmuComputeMagnitude(magnitude);
     bool shouldVibrate = false;
-    bool found = false;
+    bool shouldCancel = false;
 
     pthread_mutex_lock(&g_VibeDriverVibrateMutex);
     VibroEffectSlot* slot = VibeDriverFindSlot(effectHandle);
     if(slot)
     {
-        found = true;
+        bool wasInfinite = (slot->durationMs == VIBE_TIME_INFINITE);
         slot->durationMs = durationMs;
         slot->magnitude = magnitude;
         slot->startTimeMs = VibeOSGetTimeMs();
@@ -99,18 +101,39 @@ VibeStatus EmuModifyEffect(VibeInt32 deviceHandle, VibeInt32 effectHandle, VibeI
         if(durationMs > 0 && effMag > 0)
         {
             slot->state = VIBE_EFFECT_STATE_PLAYING;
+            g_nActiveHwHandle = effectHandle;
             shouldVibrate = true;
         }
         else
         {
             slot->state = VIBE_EFFECT_STATE_NOT_PLAYING;
             slot->inUse = false;
+            if(effectHandle == g_nActiveHwHandle || wasInfinite || !VibeDriverAnySlotPlaying())
+            {
+                g_nActiveHwHandle = VIBE_INVALID_HANDLE;
+                shouldCancel = true;
+            }
         }
     }
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(shouldVibrate) Emulator_VibrateWithMagnitude((VibeInt64)durationMs, effMag);
-    else if(found) Emulator_CancelVibrate();
+    if(shouldVibrate)
+    {
+        if(durationMs == VIBE_TIME_INFINITE)
+        {
+            VibeInt64 t[1] = { 1000 };
+            VibeInt32 m[1] = { effMag };
+            Emulator_VibrateWaveform(t, m, 1, 0);
+        }
+        else
+        {
+            Emulator_VibrateWithMagnitude((VibeInt64)durationMs, effMag);
+        }
+    }
+    else if(shouldCancel)
+    {
+        Emulator_CancelVibrate();
+    }
     return STATUS_OK;
 }
 
@@ -131,6 +154,8 @@ VIBE_EXPORT VibeStatus ImmVibePlayIVTEffect(VibeInt32 deviceHandle, const VibeUI
         if(plan.amplitudes[i] > 0) anyNonZero = true;
     }
 
+    bool willVibrate = (plan.count > 0 && anyNonZero);
+
     pthread_mutex_lock(&g_VibeDriverVibrateMutex);
     VibroEffectSlot* slot = VibeDriverAllocSlot();
     VibeInt32 handle = VibeDriverNextEffectHandle();
@@ -141,10 +166,11 @@ VIBE_EXPORT VibeStatus ImmVibePlayIVTEffect(VibeInt32 deviceHandle, const VibeUI
     slot->magnitude = plan.peakMagnitude;
     slot->startTimeMs = VibeOSGetTimeMs();
     slot->remainingMs = plan.totalDurationMs;
-    slot->state = (plan.count > 0 && anyNonZero) ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    slot->state = willVibrate ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    if(willVibrate) g_nActiveHwHandle = handle;
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(plan.count > 0 && anyNonZero)
+    if(willVibrate)
     {
         Emulator_VibrateWaveform(plan.timings, plan.amplitudes, plan.count, plan.repeatIndex);
     }
@@ -192,6 +218,8 @@ VIBE_EXPORT VibeStatus ImmVibePlayIVTEffectRepeat(VibeInt32 deviceHandle, const 
         if(plan.amplitudes[i] > 0) anyNonZero = true;
     }
 
+    bool willVibrate = (plan.count > 0 && anyNonZero);
+
     pthread_mutex_lock(&g_VibeDriverVibrateMutex);
     VibroEffectSlot* slot = VibeDriverAllocSlot();
     VibeInt32 handle = VibeDriverNextEffectHandle();
@@ -202,10 +230,11 @@ VIBE_EXPORT VibeStatus ImmVibePlayIVTEffectRepeat(VibeInt32 deviceHandle, const 
     slot->magnitude = plan.peakMagnitude;
     slot->startTimeMs = VibeOSGetTimeMs();
     slot->remainingMs = plan.totalDurationMs;
-    slot->state = (plan.count > 0 && anyNonZero) ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    slot->state = willVibrate ? VIBE_EFFECT_STATE_PLAYING : VIBE_EFFECT_STATE_NOT_PLAYING;
+    if(willVibrate) g_nActiveHwHandle = handle;
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(plan.count > 0 && anyNonZero)
+    if(willVibrate)
     {
         Emulator_VibrateWaveform(plan.timings, plan.amplitudes, plan.count, plan.repeatIndex);
     }
@@ -297,18 +326,30 @@ VIBE_EXPORT VibeStatus ImmVibeStopPlayingEffect(VibeInt32 deviceHandle, VibeInt3
     if(g_nVibeAPIReferenceCount <= 0) return STATUS_FAILED_TO_INIT;
     if(!g_bDeviceOpen || deviceHandle != 1) return STATUS_WRONG_ARGUMENT;
 
+    bool shouldCancel = false;
     pthread_mutex_lock(&g_VibeDriverVibrateMutex);
     VibroEffectSlot* slot = VibeDriverFindSlot(effectHandle);
     if(slot)
     {
+        if(slot->handle == g_nActiveHwHandle || slot->durationMs == VIBE_TIME_INFINITE)
+        {
+            shouldCancel = true;
+        }
         slot->state = VIBE_EFFECT_STATE_NOT_PLAYING;
         slot->remainingMs = 0;
         slot->inUse = false;
     }
-    bool anyPlaying = VibeDriverAnySlotPlaying();
+    if(effectHandle == g_nActiveHwHandle || !VibeDriverAnySlotPlaying())
+    {
+        shouldCancel = true;
+    }
+    if(shouldCancel)
+    {
+        g_nActiveHwHandle = VIBE_INVALID_HANDLE;
+    }
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(!anyPlaying) Emulator_CancelVibrate();
+    if(shouldCancel) Emulator_CancelVibrate();
     return STATUS_OK;
 }
 
@@ -335,11 +376,13 @@ VIBE_EXPORT VibeStatus ImmVibePausePlayingEffect(VibeInt32 deviceHandle, VibeInt
     VibroEffectSlot* slot = VibeDriverFindSlot(effectHandle);
     if(slot && slot->state == VIBE_EFFECT_STATE_PLAYING)
     {
+        bool wasActiveOrInf = (slot->handle == g_nActiveHwHandle || slot->durationMs == VIBE_TIME_INFINITE);
         VibeInt64 elapsed = VibeOSGetTimeMs() - slot->startTimeMs;
         VibeInt32 rem = (slot->durationMs == VIBE_TIME_INFINITE) ? VIBE_TIME_INFINITE : (VibeInt32)(slot->durationMs - elapsed);
         slot->remainingMs = (rem > 0) ? rem : 0;
         slot->state = VIBE_EFFECT_STATE_PAUSED;
-        shouldCancel = !VibeDriverAnySlotPlaying();
+        shouldCancel = wasActiveOrInf || !VibeDriverAnySlotPlaying();
+        if(shouldCancel) g_nActiveHwHandle = VIBE_INVALID_HANDLE;
     }
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
@@ -363,10 +406,23 @@ VIBE_EXPORT VibeStatus ImmVibeResumePausedEffect(VibeInt32 deviceHandle, VibeInt
         slot->state = VIBE_EFFECT_STATE_PLAYING;
         dur = slot->durationMs;
         mag = EmuComputeMagnitude(slot->magnitude);
+        if(dur > 0 && mag > 0) g_nActiveHwHandle = effectHandle;
     }
     pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
 
-    if(dur > 0 && mag > 0) Emulator_VibrateWithMagnitude((VibeInt64)dur, mag);
+    if(dur > 0 && mag > 0)
+    {
+        if(dur == VIBE_TIME_INFINITE)
+        {
+            VibeInt64 t[1] = { 1000 };
+            VibeInt32 m[1] = { mag };
+            Emulator_VibrateWaveform(t, m, 1, 0);
+        }
+        else
+        {
+            Emulator_VibrateWithMagnitude((VibeInt64)dur, mag);
+        }
+    }
     return STATUS_OK;
 }
 
@@ -432,7 +488,6 @@ VIBE_EXPORT VibeStatus ImmVibeDestroyStreamingEffect(VibeInt32 deviceHandle, Vib
 
 VIBE_EXPORT VibeStatus ImmVibePlayStreamingSample(VibeInt32 deviceHandle, VibeInt32 effectHandle, const VibeUInt8* sample, VibeInt32 size)
 {
-    (void)effectHandle;
     if(g_nVibeAPIReferenceCount <= 0) return STATUS_FAILED_TO_INIT;
     if(!g_bDeviceOpen || deviceHandle != 1) return STATUS_WRONG_ARGUMENT;
     if(!sample || size <= 0) return STATUS_OK;
@@ -440,7 +495,13 @@ VIBE_EXPORT VibeStatus ImmVibePlayStreamingSample(VibeInt32 deviceHandle, VibeIn
     VibeInt32 dur = size * 5;
     VibeInt32 mag = EstimateWaveformMagnitude(sample, size, VIBE_MAX_MAGNITUDE);
     VibeInt32 effMag = EmuComputeMagnitude(mag);
-    if(effMag > 0) Emulator_VibrateWithMagnitude((VibeInt64)dur, effMag);
+    if(effMag > 0)
+    {
+        pthread_mutex_lock(&g_VibeDriverVibrateMutex);
+        g_nActiveHwHandle = effectHandle;
+        pthread_mutex_unlock(&g_VibeDriverVibrateMutex);
+        Emulator_VibrateWithMagnitude((VibeInt64)dur, effMag);
+    }
     return STATUS_OK;
 }
 

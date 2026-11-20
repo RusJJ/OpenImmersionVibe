@@ -13,15 +13,22 @@ static void RefreshSlot(VibroEffectSlot* slot, VibeInt64 nowMs)
         slot->state = VIBE_EFFECT_STATE_NOT_PLAYING;
         slot->remainingMs = 0;
         slot->inUse = false;
+        if(g_nActiveHwHandle == slot->handle)
+        {
+            g_nActiveHwHandle = VIBE_INVALID_HANDLE;
+        }
     }
 }
 
 extern "C"
 {
 
+VibeInt32 g_nActiveHwHandle = VIBE_INVALID_HANDLE;
+
 void VibeDriverResetSlots()
 {
     memset(g_Slots, 0, sizeof(g_Slots));
+    g_nActiveHwHandle = VIBE_INVALID_HANDLE;
 }
 
 bool VibeDriverAnySlotPlaying()
